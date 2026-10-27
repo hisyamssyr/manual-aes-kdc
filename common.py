@@ -6,8 +6,6 @@ import aes
 
 
 KEY_LENGTH = 16
-MIN_PORT = 1
-MAX_PORT = 65535
 
 
 def log(label: str, message: str) -> None:
@@ -20,24 +18,23 @@ def send(sock: socket.socket, obj: dict[str, object]) -> None:
 
 
 def recv(sock: socket.socket) -> dict[str, object]:
-    buffer = bytearray()
+    buf = bytearray()
     while True:
-        chunk = sock.recv(1)
-        if not chunk:
-            if buffer:
+        b = sock.recv(1)
+        if not b:
+            if buf:
                 raise ValueError("Pesan jaringan tidak lengkap")
             raise ConnectionError("Koneksi ditutup")
-        if chunk == b"\n":
+        if b == b"\n":
             break
-        buffer.extend(chunk)
-
+        buf.extend(b)
     try:
-        message = json.loads(buffer.decode("utf-8"))
+        data = json.loads(buf.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("Pesan JSON tidak valid") from error
-    if not isinstance(message, dict):
-        raise ValueError("Pesan JSON harus berupa object")
-    return message
+    if not isinstance(data, dict):
+        raise ValueError("Pesan harus berupa JSON object")
+    return data
 
 
 def seal(key: bytes, text: str) -> str:
@@ -50,129 +47,100 @@ def seal(key: bytes, text: str) -> str:
 
 def unseal(key: bytes, hex_data: str) -> str:
     try:
-        encrypted_data = bytes.fromhex(hex_data)
-        plaintext = aes.decrypt_cbc(key, encrypted_data)
-        return plaintext.decode("ascii")
-    except (TypeError, ValueError, UnicodeDecodeError) as error:
+        raw = bytes.fromhex(hex_data)
+        return aes.decrypt_cbc(key, raw).decode("ascii")
+    except Exception as error:
         raise ValueError("Data terenkripsi tidak valid") from error
 
 
 def valid_text(text: str) -> bool:
-    return bool(text) and all(32 <= ord(char) <= 126 for char in text)
+    return bool(text) and all(32 <= ord(c) <= 126 for c in text)
 
 
 def ask_key(prompt: str) -> bytes:
     while True:
-        value = input(prompt)
-        if len(value) == KEY_LENGTH and valid_text(value):
-            return value.encode("ascii")
+        val = input(prompt).strip()
+        if len(val) == KEY_LENGTH and valid_text(val):
+            return val.encode("ascii")
         log("ERROR", "Key harus tepat 16 karakter ASCII printable.")
 
 
 def parse_hostport(value: str) -> tuple[str, int]:
-    host, separator, port_text = value.rpartition(":")
-    if not separator or not host or not port_text:
-        raise ValueError("Alamat harus berformat ip:port")
+    host, sep, port_str = value.rpartition(":")
+    if not sep or not host or not port_str:
+        raise ValueError("Format harus ip:port")
     try:
-        port = int(port_text)
-    except ValueError as error:
-        raise ValueError("Port harus berupa angka") from error
-    if port < MIN_PORT or port > MAX_PORT:
-        raise ValueError("Port harus berada antara 1 dan 65535")
-    return host, port
+        port = int(port_str)
+        if not (1 <= port <= 65535):
+            raise ValueError
+        return host, port
+    except ValueError:
+        raise ValueError("Port harus berupa angka 1-65535")
 
 
 def run_menu(title: str, options: dict[str, tuple[str, object]]) -> None:
     while True:
         log(title, "")
-        for choice, (label, _) in options.items():
-            log(title, f"{choice}. {label}")
+        for k, (lbl, _) in options.items():
+            log(title, f"{k}. {lbl}")
         log(title, "0. Keluar")
         choice = input("Pilihan: ").strip()
         if choice == "0":
             return
         selected = options.get(choice)
-        if selected is None:
+        if selected:
+            selected[1]()
+        else:
             log("ERROR", "Pilihan tidak valid.")
-            continue
-        action = selected[1]
-        if not callable(action):
-            raise TypeError("Aksi menu harus berupa fungsi")
-        action()
 
 
-def _receive_chat_messages(
-    sock: socket.socket,
-    session_key: bytes,
-    chat_ended: threading.Event,
+def _recv_loop(
+    sock: socket.socket, key: bytes, stop: threading.Event
 ) -> None:
-    while not chat_ended.is_set():
+    while not stop.is_set():
         try:
-            message = recv(sock)
-        except ConnectionError:
-            if not chat_ended.is_set():
+            msg = recv(sock)
+        except Exception:
+            if not stop.is_set():
                 log("CHAT", "Lawan memutus koneksi.")
-                chat_ended.set()
-            return
-        except (OSError, ValueError):
-            if not chat_ended.is_set():
-                log("CHAT", "Pesan tidak valid.")
-            continue
-
-        if message.get("type") != "MSG":
-            log("CHAT", "Pesan tidak valid.")
-            continue
-        encrypted_data = message.get("data")
-        if not isinstance(encrypted_data, str):
-            log("CHAT", "Pesan tidak valid.")
-            continue
-        try:
-            text = unseal(session_key, encrypted_data)
-        except ValueError:
-            log("CHAT", "Pesan tidak valid.")
-            continue
-        log("TERIMA", f"{text} | Hex: {encrypted_data}")
-
-
-def _close_socket(sock: socket.socket) -> None:
-    try:
-        sock.shutdown(socket.SHUT_RDWR)
-    except OSError:
-        sock.close()
-        return
-    sock.close()
+                stop.set()
+            break
+        if msg.get("type") == "MSG" and isinstance(msg.get("data"), str):
+            try:
+                text = unseal(key, msg["data"])
+                log("TERIMA", f"{text} | Hex: {msg['data']}")
+            except ValueError:
+                log("CHAT", "Pesan rusak/tidak valid.")
 
 
 def chat_session(sock: socket.socket, session_key: bytes) -> None:
-    chat_ended = threading.Event()
+    stop = threading.Event()
     receiver = threading.Thread(
-        target=_receive_chat_messages,
-        args=(sock, session_key, chat_ended),
-        daemon=True,
+        target=_recv_loop, args=(sock, session_key, stop), daemon=True
     )
     receiver.start()
-
     try:
-        while not chat_ended.is_set():
+        while not stop.is_set():
             try:
                 text = input("Pesan (/exit untuk keluar): ")
             except EOFError:
                 break
-            if chat_ended.is_set():
-                break
-            if text == "/exit":
+            if stop.is_set() or text == "/exit":
                 break
             if not valid_text(text):
-                log("ERROR", "Pesan tidak boleh kosong dan harus ASCII printable.")
+                log("ERROR", "Pesan harus ASCII printable dan tidak kosong.")
                 continue
-            encrypted_data = seal(session_key, text)
+            enc = seal(session_key, text)
             try:
-                send(sock, {"type": "MSG", "data": encrypted_data})
+                send(sock, {"type": "MSG", "data": enc})
+                log("KIRIM", f"{text} | Hex: {enc}")
             except OSError:
                 log("CHAT", "Gagal mengirim pesan.")
                 break
-            log("KIRIM", f"{text} | Hex: {encrypted_data}")
     finally:
-        chat_ended.set()
-        _close_socket(sock)
-        receiver.join()
+        stop.set()
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        sock.close()
