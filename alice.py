@@ -69,7 +69,7 @@ def _request_session(
 ) -> tuple[bytes, str]:
     nonce = secrets.randbelow(MAX_NONCE) + 1
     request = {"type": "REQ", "a": alice_id, "b": peer_id, "n1": nonce}
-    common.log("STEP 1", f"Mengirim REQ a={alice_id}, b={peer_id}, n1={nonce}.")
+    common.log("STEP 1", f"Mengirim REQ dari {alice_id} untuk {peer_id}.")
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.connect(kdc_address)
