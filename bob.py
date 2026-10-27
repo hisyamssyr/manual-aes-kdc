@@ -53,18 +53,23 @@ def _handle_connection(
 def _wait_for_alice(port: int, kb: bytes, peer_id: str) -> None:
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    conn = None
     try:
         server.bind(("0.0.0.0", port))
         server.listen(1)
-        common.log("BOB", f"Menunggu koneksi dari {peer_id} di port {port}...")
+        common.log("BOB", f"Menunggu koneksi dari {peer_id} di port {port} (Ctrl+C untuk batal)...")
         conn, addr = server.accept()
+    except KeyboardInterrupt:
+        common.log("BOB", "Dibatalkan.")
+        return
     except OSError as error:
         common.log("ERROR", f"Gagal membuka port: {error}")
         return
     finally:
         server.close()
 
-    _handle_connection(conn, addr, kb, peer_id)
+    if conn:
+        _handle_connection(conn, addr, kb, peer_id)
 
 
 def main() -> None:

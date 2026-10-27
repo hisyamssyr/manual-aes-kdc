@@ -74,6 +74,8 @@ def _run_protocol(
     try:
         ks, ticket = _step_kdc(kdc_addr, alice_id, peer_id, ka)
         _step_bob(bob_addr, peer_id, ks, ticket)
+    except KeyboardInterrupt:
+        common.log("ALICE", "Dibatalkan.")
     except Exception as error:
         common.log("ERROR", f"Protokol gagal: {error}")
 

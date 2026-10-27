@@ -123,7 +123,7 @@ def chat_session(sock: socket.socket, session_key: bytes) -> None:
         while not stop.is_set():
             try:
                 text = input("Pesan (/exit untuk keluar): ")
-            except EOFError:
+            except (EOFError, KeyboardInterrupt):
                 break
             if stop.is_set() or text == "/exit":
                 break
