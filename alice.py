@@ -5,133 +5,102 @@ import socket
 import common
 
 
-DEFAULT_ALICE_ID = "alice"
-DEFAULT_PEER_ID = "bob"
 MAX_NONCE = 2**32
-KEY_LENGTH = 16
 
 
-def _is_valid_identity(identity: str) -> bool:
-    return bool(identity) and identity.isascii() and identity.isalnum()
-
-
-def _parse_arguments() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Klien Alice")
-    parser.add_argument("--kdc", required=True, help="Alamat KDC dalam format ip:port")
-    parser.add_argument("--bob", required=True, help="Alamat Bob dalam format ip:port")
-    parser.add_argument("--id", default=DEFAULT_ALICE_ID, help="ID Alice")
-    parser.add_argument("--peer", default=DEFAULT_PEER_ID, help="ID Bob")
-    arguments = parser.parse_args()
-
-    try:
-        arguments.kdc_address = common.parse_hostport(arguments.kdc)
-        arguments.bob_address = common.parse_hostport(arguments.bob)
-    except ValueError as error:
-        parser.error(str(error))
-    if not _is_valid_identity(arguments.id):
-        parser.error("ID Alice harus berupa huruf atau angka.")
-    if not _is_valid_identity(arguments.peer):
-        parser.error("ID Bob harus berupa huruf atau angka.")
-    return arguments
-
-
-def _decode_response(
-    response: dict[str, object],
-    alice_key: bytes,
-    request: dict[str, object],
+def _step_kdc(
+    kdc_addr: tuple[str, int], alice_id: str, peer_id: str, ka: bytes
 ) -> tuple[bytes, str]:
-    if response.get("type") != "RESP":
-        raise ValueError("Respons KDC tidak valid")
-    for_alice = response.get("for_a")
-    ticket = response.get("ticket")
-    if not isinstance(for_alice, str) or not isinstance(ticket, str):
-        raise ValueError("Field respons KDC tidak valid")
-
-    plaintext = common.unseal(alice_key, for_alice)
-    fields = plaintext.split("|")
-    expected = [
-        str(request["a"]),
-        str(request["b"]),
-        str(request["n1"]),
-    ]
-    if len(fields) != 4 or fields[1:] != expected:
-        raise ValueError("Respons KDC tidak sesuai dengan permintaan")
-    if len(fields[0]) != KEY_LENGTH or not fields[0].isalnum():
-        raise ValueError("Session key dari KDC tidak valid")
-    return fields[0].encode("ascii"), ticket
-
-
-def _request_session(
-    kdc_address: tuple[str, int],
-    alice_id: str,
-    peer_id: str,
-    alice_key: bytes,
-) -> tuple[bytes, str]:
-    nonce = secrets.randbelow(MAX_NONCE) + 1
-    request = {"type": "REQ", "a": alice_id, "b": peer_id, "n1": nonce}
+    n1 = secrets.randbelow(MAX_NONCE) + 1
     common.log("STEP 1", f"Mengirim REQ dari {alice_id} untuk {peer_id}.")
-
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.connect(kdc_address)
-        common.send(sock, request)
-        response = common.recv(sock)
+        sock.connect(kdc_addr)
+        common.send(sock, {"type": "REQ", "a": alice_id, "b": peer_id, "n1": n1})
+        resp = common.recv(sock)
 
-    session_key, ticket = _decode_response(response, alice_key, request)
-    for_alice = response["for_a"]
-    common.log("STEP 2", f"for_a={for_alice}")
+    if resp.get("type") != "RESP":
+        raise ValueError("Respons KDC tidak valid")
+    for_a, ticket = resp.get("for_a"), resp.get("ticket")
+    if not isinstance(for_a, str) or not isinstance(ticket, str):
+        raise ValueError("Field respons KDC tidak lengkap")
+
+    common.log("STEP 2", f"for_a={for_a}")
     common.log("STEP 2", f"ticket={ticket}")
-    return session_key, ticket
+
+    unsealed = common.unseal(ka, for_a).split("|")
+    if len(unsealed) != 4 or unsealed[1:] != [alice_id, peer_id, str(n1)]:
+        raise ValueError("Data respons KDC tidak cocok dengan permintaan")
+
+    return unsealed[0].encode("ascii"), ticket
 
 
-def _clear_session(state: dict[str, object]) -> None:
-    state.pop("session_key", None)
-    state.pop("ticket", None)
+def _step_bob(
+    bob_addr: tuple[str, int], peer_id: str, ks: bytes, ticket: str
+) -> None:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.connect(bob_addr)
+        common.send(sock, {"type": "TICKET", "ticket": ticket})
+        common.log("STEP 3", f"Mengirim tiket ke {peer_id}: {ticket}")
 
+        chal = common.recv(sock)
+        if chal.get("type") != "CHALLENGE" or not isinstance(chal.get("data"), str):
+            raise ValueError("Respons challenge Bob tidak valid")
+        n2 = int(common.unseal(ks, chal["data"]))
+        common.log("STEP 4", f"Challenge diterima dari {peer_id}")
 
-def _change_key(state: dict[str, object]) -> None:
-    state["key"] = common.ask_key("Key Ka: ")
-    _clear_session(state)
-    common.log("KEY", "Key Ka berhasil diubah.")
+        ans = common.seal(ks, str(n2 - 1))
+        common.send(sock, {"type": "ANSWER", "data": ans})
+        common.log("STEP 5", f"Mengirim jawaban challenge ke {peer_id}")
+
+        auth = common.recv(sock)
+        if not auth.get("ok"):
+            raise ValueError("Autentikasi ditolak oleh Bob")
+
+        common.log("STEP 5", "Autentikasi berhasil. Memulai chat terenkripsi.")
+        common.chat_session(sock, ks)
+    except Exception as error:
+        sock.close()
+        raise error
 
 
 def _run_protocol(
-    state: dict[str, object],
-    kdc_address: tuple[str, int],
+    kdc_addr: tuple[str, int],
+    bob_addr: tuple[str, int],
     alice_id: str,
     peer_id: str,
+    ka: bytes,
 ) -> None:
-    alice_key = state.get("key")
-    if not isinstance(alice_key, bytes):
-        common.log("ERROR", "Key Ka belum tersedia.")
-        return
     try:
-        session_key, ticket = _request_session(
-            kdc_address, alice_id, peer_id, alice_key
-        )
-    except (ConnectionError, OSError, TypeError, ValueError) as error:
-        _clear_session(state)
+        ks, ticket = _step_kdc(kdc_addr, alice_id, peer_id, ka)
+        _step_bob(bob_addr, peer_id, ks, ticket)
+    except Exception as error:
         common.log("ERROR", f"Protokol gagal: {error}")
-        return
-    state["session_key"] = session_key
-    state["ticket"] = ticket
-    common.log("AUTH", "Langkah 1-2 berhasil; tiket Bob tersimpan.")
 
 
 def main() -> None:
-    arguments = _parse_arguments()
-    state = {"key": common.ask_key("Key Ka: ")}
+    parser = argparse.ArgumentParser(description="Klien Alice")
+    parser.add_argument("--kdc", required=True, help="Alamat KDC (ip:port)")
+    parser.add_argument("--bob", required=True, help="Alamat Bob (ip:port)")
+    parser.add_argument("--id", default="alice", help="ID Alice")
+    parser.add_argument("--peer", default="bob", help="ID Bob")
+    args = parser.parse_args()
+
+    kdc_addr = common.parse_hostport(args.kdc)
+    bob_addr = common.parse_hostport(args.bob)
+    state = {"ka": common.ask_key("Key Ka: ")}
 
     def change_key() -> None:
-        _change_key(state)
+        state["ka"] = common.ask_key("Key Ka: ")
+        common.log("KEY", "Key Ka berhasil diubah.")
 
-    def run_protocol() -> None:
-        _run_protocol(state, arguments.kdc_address, arguments.id, arguments.peer)
+    def run() -> None:
+        _run_protocol(kdc_addr, bob_addr, args.id, args.peer, state["ka"])
 
-    menu_options = {
+    common.run_menu("Alice", {
         "1": ("Ubah key Ka", change_key),
-        "2": ("Jalankan protokol langkah 1-2", run_protocol),
-    }
-    common.run_menu("Alice", menu_options)
+        "2": ("Jalankan Protokol & Chat", run),
+    })
 
 
 if __name__ == "__main__":
