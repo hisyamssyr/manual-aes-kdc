@@ -1,4 +1,5 @@
 import argparse
+import json
 import secrets
 import socket
 
@@ -82,14 +83,16 @@ def _run_protocol(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Klien Alice")
-    parser.add_argument("--kdc", required=True, help="Alamat KDC (ip:port)")
-    parser.add_argument("--bob", required=True, help="Alamat Bob (ip:port)")
     parser.add_argument("--id", default="alice", help="ID Alice")
     parser.add_argument("--peer", default="bob", help="ID Bob")
     args = parser.parse_args()
 
-    kdc_addr = common.parse_hostport(args.kdc)
-    bob_addr = common.parse_hostport(args.bob)
+    with open("config.json", encoding="utf-8") as config_file:
+        settings = json.load(config_file)
+    kdc_config = settings["kdc"]
+    bob_config = settings["bob"]
+    kdc_addr = (kdc_config["host"], kdc_config["port"])
+    bob_addr = (bob_config["host"], bob_config["port"])
     state = {"ka": common.ask_key("Key Ka: ")}
 
     def change_key() -> None:

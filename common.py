@@ -65,19 +65,6 @@ def ask_key(prompt: str) -> bytes:
         log("ERROR", "Key harus tepat 16 karakter ASCII printable.")
 
 
-def parse_hostport(value: str) -> tuple[str, int]:
-    host, sep, port_str = value.rpartition(":")
-    if not sep or not host or not port_str:
-        raise ValueError("Format harus ip:port")
-    try:
-        port = int(port_str)
-        if not (1 <= port <= 65535):
-            raise ValueError
-        return host, port
-    except ValueError:
-        raise ValueError("Port harus berupa angka 1-65535")
-
-
 def run_menu(title: str, options: dict[str, tuple[str, object]]) -> None:
     while True:
         log(title, "")

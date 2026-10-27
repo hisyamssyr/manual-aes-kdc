@@ -1,4 +1,4 @@
-import argparse
+import json
 import secrets
 import socket
 import string
@@ -74,9 +74,11 @@ def _change_key(keys: dict[str, bytes], lock: threading.Lock, user: str) -> None
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Key Distribution Center")
-    parser.add_argument("--port", type=int, default=5000, help="Port KDC")
-    args = parser.parse_args()
+    with open("config.json", encoding="utf-8") as config_file:
+        settings = json.load(config_file)
+    kdc_config = settings["kdc"]
+    bind_host = kdc_config.get("bind_host", "0.0.0.0")
+    port = kdc_config["port"]
 
     keys = {
         "alice": common.ask_key("Key Alice: "),
@@ -87,14 +89,14 @@ def main() -> None:
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind(("0.0.0.0", args.port))
+    server.bind((bind_host, port))
     server.listen()
 
     thread = threading.Thread(
         target=_serve, args=(server, stop, keys, lock), daemon=True
     )
     thread.start()
-    common.log("KDC", f"Server berjalan di 0.0.0.0:{args.port}.")
+    common.log("KDC", f"Server berjalan di {bind_host}:{port}.")
 
     try:
         common.run_menu("KDC", {

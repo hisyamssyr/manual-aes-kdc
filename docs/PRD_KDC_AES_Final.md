@@ -10,7 +10,7 @@
 
 ## 1. Aturan Wajib (dari soal)
 
-1. Tiga entitas (KDC, Alice, Bob) berjalan di **tiga perangkat dengan IP berbeda**. IP dan port tidak di-hardcode (diberikan lewat argumen command line).
+1. Tiga entitas (KDC, Alice, Bob) berjalan di **tiga perangkat dengan IP berbeda**. IP dan port dibaca dari `config.json`.
 2. Mengikuti diagram **Key Distribution Scenario** lima langkah. Setelah langkah 5, Alice dan Bob berkomunikasi dua arah memakai AES.
 3. **AES dan KDC harus manual.** Dilarang memakai library kripto (`cryptography`, `pycryptodome`, `pyaes`, `Crypto`, `hashlib`, dan sejenisnya).
 4. Key dan plaintext berformat **ASCII**; ciphertext ditampilkan dalam **Hex**.
@@ -127,12 +127,11 @@ Selesaikan dan lulus semua test AES **sebelum** mengerjakan jaringan.
 - `seal(key, text) -> hex string` (ASCII text → `encrypt_cbc` → hex) dan `unseal(key, hex) -> text` (hex → `decrypt_cbc` → teks ASCII; error jadi `ValueError`).
 - `ask_key(prompt) -> bytes/str`: ulangi sampai input tepat 16 karakter ASCII printable.
 - `valid_text(s)`: tidak kosong dan semua karakter ASCII printable (32-126).
-- `parse_hostport("ip:port")`.
 - `run_menu(title, options)`: tampilkan menu, baca pilihan, panggil fungsi yang sesuai, ulangi sampai pilihan keluar. Dipakai bersama oleh KDC, Alice, dan Bob agar tidak ada kode menu yang berulang.
 - `chat_session(sock, ks)`: seluruh logika chat (5.7) ditulis sekali di sini dan dipakai Alice dan Bob.
 
 ### 5.4 `kdc.py`
-- Argumen: `--port` (default 5000).
+- Membaca host bind dan port KDC dari section `kdc` di `config.json`.
 - Saat mulai: minta key `alice` dan `bob` lewat prompt; simpan dalam dictionary di memori.
 - Server berjalan di thread latar; thread utama menjalankan menu:
 ```text
@@ -144,7 +143,8 @@ Selesaikan dan lulus semua test AES **sebelum** mengerjakan jaringan.
 - Cetak log tiap langkah (siapa meminta, `for_a` dan `ticket` dalam Hex). **Jangan cetak `Ka`, `Kb`, `Ks`.**
 
 ### 5.5 `alice.py`
-- Argumen: `--kdc ip:port`, `--bob ip:port`, `--id alice`, `--peer bob`.
+- Membaca alamat KDC dan Bob dari section `kdc` dan `bob` di `config.json`.
+- Argumen opsional: `--id alice` dan `--peer bob`.
 - Menu:
 ```text
 1. Ubah key Ka
@@ -156,7 +156,8 @@ Selesaikan dan lulus semua test AES **sebelum** mengerjakan jaringan.
 - Opsi 3 (chat): lihat 5.7.
 
 ### 5.6 `bob.py`
-- Argumen: `--port` (default 5001), `--id bob`, `--peer alice`.
+- Membaca host bind dan port Bob dari section `bob` di `config.json`.
+- Argumen opsional: `--id bob` dan `--peer alice`.
 - Menu:
 ```text
 1. Ubah key Kb

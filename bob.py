@@ -1,11 +1,11 @@
 import argparse
+import json
 import secrets
 import socket
 
 import common
 
 
-DEFAULT_PORT = 5001
 MAX_NONCE = 2**32
 
 
@@ -50,12 +50,14 @@ def _handle_connection(
             common.log("ERROR", f"Handshake gagal: {error}")
 
 
-def _wait_for_alice(port: int, kb: bytes, peer_id: str) -> None:
+def _wait_for_alice(
+    bind_host: str, port: int, kb: bytes, peer_id: str
+) -> None:
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     conn = None
     try:
-        server.bind(("0.0.0.0", port))
+        server.bind((bind_host, port))
         server.listen(1)
         common.log("BOB", f"Menunggu koneksi dari {peer_id} di port {port} (Ctrl+C untuk batal)...")
         conn, addr = server.accept()
@@ -74,10 +76,14 @@ def _wait_for_alice(port: int, kb: bytes, peer_id: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Node Bob")
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="Port Bob")
     parser.add_argument("--id", default="bob", help="ID Bob")
     parser.add_argument("--peer", default="alice", help="ID lawan bicara (Alice)")
     args = parser.parse_args()
+    with open("config.json", encoding="utf-8") as config_file:
+        settings = json.load(config_file)
+    bob_config = settings["bob"]
+    bind_host = bob_config.get("bind_host", "0.0.0.0")
+    port = bob_config["port"]
 
     state = {"kb": common.ask_key("Key Bob: ")}
 
@@ -86,7 +92,7 @@ def main() -> None:
         common.log("KEY", "Key Bob berhasil diubah.")
 
     def run_session() -> None:
-        _wait_for_alice(args.port, state["kb"], args.peer)
+        _wait_for_alice(bind_host, port, state["kb"], args.peer)
 
     common.run_menu("Bob", {
         "1": ("Ubah key Bob", change_key),
