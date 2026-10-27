@@ -9,8 +9,7 @@ import kdc
 
 class ProtocolIntegrationTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.kdc_port = 5980
-        self.bob_port = 5981
+        self.kdc_port = 0
         self.ka = b"1111222233334444"
         self.kb = b"5555666677778888"
         self.keys = {"alice": self.ka, "bob": self.kb}
@@ -21,6 +20,7 @@ class ProtocolIntegrationTest(unittest.TestCase):
         self.kdc_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.kdc_sock.bind(("127.0.0.1", self.kdc_port))
         self.kdc_sock.listen()
+        self.kdc_port = self.kdc_sock.getsockname()[1]
 
         self.kdc_thread = threading.Thread(
             target=kdc._serve,
@@ -32,9 +32,11 @@ class ProtocolIntegrationTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.stop_kdc.set()
         try:
-            self.kdc_sock.close()
+            self.kdc_sock.shutdown(socket.SHUT_RDWR)
         except OSError:
-            pass
+            self.kdc_sock.close()
+        else:
+            self.kdc_sock.close()
         self.kdc_thread.join(timeout=1)
 
     def test_kdc_step_1_and_2_success(self) -> None:
@@ -70,8 +72,9 @@ class ProtocolIntegrationTest(unittest.TestCase):
 
         bob_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         bob_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        bob_server.bind(("127.0.0.1", self.bob_port))
+        bob_server.bind(("127.0.0.1", 0))
         bob_server.listen(1)
+        bob_port = bob_server.getsockname()[1]
 
         def bob_worker() -> None:
             conn, _ = bob_server.accept()
@@ -100,7 +103,7 @@ class ProtocolIntegrationTest(unittest.TestCase):
         t_bob.start()
 
         alice_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        alice_sock.connect(("127.0.0.1", self.bob_port))
+        alice_sock.connect(("127.0.0.1", bob_port))
         common.send(alice_sock, {"type": "TICKET", "ticket": ticket})
 
         chal = common.recv(alice_sock)
@@ -131,8 +134,9 @@ class ProtocolIntegrationTest(unittest.TestCase):
 
         bob_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         bob_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        bob_server.bind(("127.0.0.1", self.bob_port + 1))
+        bob_server.bind(("127.0.0.1", 0))
         bob_server.listen(1)
+        bob_port = bob_server.getsockname()[1]
 
         def bob_worker() -> None:
             conn, _ = bob_server.accept()
@@ -154,7 +158,7 @@ class ProtocolIntegrationTest(unittest.TestCase):
         t.start()
 
         alice_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        alice_sock.connect(("127.0.0.1", self.bob_port + 1))
+        alice_sock.connect(("127.0.0.1", bob_port))
         common.send(alice_sock, {"type": "TICKET", "ticket": ticket})
         common.recv(alice_sock)
         common.send(
