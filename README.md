@@ -20,7 +20,7 @@ Alice-Bob menggunakan AES-128-CBC manual sesuai [PRD](docs/PRD_KDC_AES_Final.md)
 
 Pembagian tanggung jawab:
 
-- `aes.py`: AES-128 manual, CBC, PKCS#7, dan demo interaktif lokal.
+- `aes.py`: AES-128 manual, CBC, dan PKCS#7.
 - `common.py`: transport JSON berbasis TCP, validasi, menu, logging, dan chat.
 - `kdc.py`: server KDC dan distribusi session key.
 - `alice.py`: klien Alice dan penginisiasi protokol.

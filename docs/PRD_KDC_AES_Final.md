@@ -52,7 +52,7 @@ ID adalah huruf/angka saja (default `alice`, `bob`).
 
 ```text
 kdc-aes/
-├── aes.py        # AES-128, CBC, PKCS#7 (+ demo interaktif lokal)
+├── aes.py        # AES-128, CBC, PKCS#7
 ├── common.py     # kirim/terima pesan, seal/unseal, validasi input, menu, chat
 ├── kdc.py
 ├── alice.py
@@ -86,10 +86,7 @@ kdc-aes/
 - `encrypt_cbc(key, plaintext_bytes)`: buat IV 16 byte acak (`secrets.token_bytes(16)`), pad, XOR tiap blok dengan blok ciphertext sebelumnya (IV untuk blok pertama), enkripsi. Kembalikan `IV + ciphertext` (bytes).
 - `decrypt_cbc(key, data_bytes)`: pisahkan 16 byte pertama sebagai IV, dekripsi per blok, XOR dengan blok sebelumnya, `unpad`. Panjang data harus kelipatan 16 dan minimal 32 byte, selain itu `ValueError`.
 
-### 4.3 Demo interaktif lokal
-`python aes.py` menampilkan menu: 1) enkripsi (input key ASCII 16 karakter dan plaintext ASCII, tampilkan hasil Hex), 2) dekripsi (input key dan Hex, tampilkan plaintext), 0) keluar. Berguna untuk menguji AES saat demo tanpa jaringan.
-
-### 4.4 Test (`test_aes.py`, pakai `unittest`)
+### 4.3 Test (`test_aes.py`, pakai `unittest`)
 
 | Test | Isi | Hasil |
 |---|---|---|
@@ -193,7 +190,6 @@ Agar tetap sederhana, **jangan** menambahkan: framing panjang atau batas ukuran 
 | 5 | Ubah `Kb` di Bob saja lalu jalankan protokol | Gagal di langkah 3 (`AUTH ok=false`) |
 | 6 | Ubah key di KDC dan peserta secara konsisten lalu ulangi protokol | Berhasil tanpa restart program |
 | 7 | Wireshark di perangkat Alice | Langkah 1 terbaca (`a`, `b`, `n1`); langkah 2-5 dan `MSG` hanya Hex; `Ks` dan key tidak terlihat |
-| 8 | `python aes.py` dengan key dan plaintext bebas | Enkripsi dan dekripsi berhasil |
 
 **Wireshark:** pilih interface jaringan yang dipakai (bukan loopback). Capture filter `tcp port 5000 or tcp port 5001`; display filter `tcp.port == 5000 || tcp.port == 5001`; gunakan "Follow TCP Stream". Jika perangkat tidak saling terhubung, cek firewall dan isolasi Wi-Fi (hotspot pribadi sebagai cadangan).
 
@@ -249,7 +245,7 @@ Aturan ini wajib dipatuhi agent di semua file `.py`. Tujuannya: kode rapi, mudah
 - Tidak ada konstanta ajaib. Beri nama: `BLOCK_SIZE = 16`, `ROUNDS = 10`, `KEY_LENGTH = 16`, `DEFAULT_KDC_PORT = 5000`, `DEFAULT_BOB_PORT = 5001`.
 - Tidak ada kode duplikat. Logika yang dipakai lebih dari satu tempat dipindah ke fungsi bersama di `common.py` (menu, chat, kirim/terima, seal/unseal).
 - Hindari variabel global yang berubah. Satu-satunya pengecualian: dictionary key di `kdc.py` (dengan lock). State sesi (`ks`, koneksi) dioper sebagai parameter atau disimpan dalam satu objek kecil, bukan banyak global.
-- Fungsi kriptografi di `aes.py` murni: input bytes, output bytes, tanpa `print`, tanpa socket, tanpa membaca input. Interaksi pengguna hanya di blok demo (`main`) dan di `kdc.py`, `alice.py`, `bob.py`.
+- Seluruh `aes.py` murni: input bytes, output bytes, tanpa `print`, tanpa socket, dan tanpa membaca input. Interaksi pengguna hanya di `kdc.py`, `alice.py`, dan `bob.py`.
 - Setiap file yang bisa dijalankan memakai `main()` dan `if __name__ == "__main__": main()`.
 - Konversi `str` dan `bytes` dilakukan hanya di batas modul (`seal`/`unseal`, kirim/terima). Di dalam `aes.py` semuanya `bytes`/`list[int]`.
 
