@@ -15,9 +15,8 @@ def log(label: str, message: str) -> None:
 
 
 def _read_input(prompt: str) -> str:
-    """Read terminal input without interleaving background log output."""
-    with _CONSOLE_LOCK:
-        return input(prompt)
+    """Read terminal input while allowing background receive logs to appear."""
+    return input(prompt)
 
 
 def send(sock: socket.socket, obj: dict[str, object]) -> None:
