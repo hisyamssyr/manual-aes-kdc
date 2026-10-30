@@ -63,6 +63,8 @@ def _serve(
                 args=(conn, addr, keys, lock),
                 daemon=True,
             ).start()
+        except socket.timeout:
+            continue
         except OSError:
             break
 
