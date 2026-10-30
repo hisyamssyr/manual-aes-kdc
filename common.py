@@ -1,17 +1,56 @@
 import json
 import socket
 import threading
+from pathlib import Path
 
 import aes
 
 
 KEY_LENGTH = 16
 _CONSOLE_LOCK = threading.Lock()
+_LOG_LOCK = threading.Lock()
+_LOG_FILE = None
+_LOG_TO_CONSOLE = True
+
+
+def configure_logging(path: str | Path | None = None, console: bool = True) -> None:
+    """Configure an optional log file and whether logs are echoed to the terminal."""
+    global _LOG_FILE, _LOG_TO_CONSOLE
+    with _LOG_LOCK:
+        if _LOG_FILE is not None:
+            _LOG_FILE.close()
+            _LOG_FILE = None
+        if path is not None:
+            log_path = Path(path)
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            _LOG_FILE = log_path.open("a", encoding="utf-8", buffering=1)
+        _LOG_TO_CONSOLE = console
+
+
+def close_logging() -> None:
+    """Close the configured log file."""
+    global _LOG_FILE, _LOG_TO_CONSOLE
+    with _LOG_LOCK:
+        if _LOG_FILE is not None:
+            _LOG_FILE.close()
+            _LOG_FILE = None
+        _LOG_TO_CONSOLE = True
+
+
+def _console_log(label: str, message: str) -> None:
+    with _CONSOLE_LOCK:
+        print(f"[{label}] {message}", flush=True)
 
 
 def log(label: str, message: str) -> None:
-    with _CONSOLE_LOCK:
-        print(f"[{label}] {message}", flush=True)
+    line = f"[{label}] {message}"
+    with _LOG_LOCK:
+        if _LOG_FILE is not None:
+            _LOG_FILE.write(line + "\n")
+            _LOG_FILE.flush()
+        if _LOG_TO_CONSOLE:
+            with _CONSOLE_LOCK:
+                print(line, flush=True)
 
 
 def _read_input(prompt: str) -> str:
@@ -69,15 +108,15 @@ def ask_key(prompt: str) -> bytes:
         val = _read_input(prompt).strip()
         if len(val) == KEY_LENGTH and valid_text(val):
             return val.encode("ascii")
-        log("ERROR", "Key harus tepat 16 karakter ASCII printable.")
+        _console_log("ERROR", "Key harus tepat 16 karakter ASCII printable.")
 
 
 def run_menu(title: str, options: dict[str, tuple[str, object]]) -> None:
     while True:
-        log(title, "")
+        _console_log(title, "")
         for k, (lbl, _) in options.items():
-            log(title, f"{k}. {lbl}")
-        log(title, "0. Keluar")
+            _console_log(title, f"{k}. {lbl}")
+        _console_log(title, "0. Keluar")
         choice = _read_input("Pilihan: ").strip()
         if choice == "0":
             return
@@ -85,7 +124,7 @@ def run_menu(title: str, options: dict[str, tuple[str, object]]) -> None:
         if selected:
             selected[1]()
         else:
-            log("ERROR", "Pilihan tidak valid.")
+            _console_log("ERROR", "Pilihan tidak valid.")
 
 
 def _recv_loop(

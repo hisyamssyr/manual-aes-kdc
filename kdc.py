@@ -3,6 +3,7 @@ import secrets
 import socket
 import string
 import threading
+from pathlib import Path
 
 import common
 
@@ -79,6 +80,8 @@ def main() -> None:
     kdc_config = settings["kdc"]
     bind_host = kdc_config.get("bind_host", "0.0.0.0")
     port = kdc_config["port"]
+    log_path = Path(__file__).resolve().parent / "log" / "kdc.log"
+    common.configure_logging(log_path, console=False)
 
     keys = {
         "alice": common.ask_key("Key Alice: "),
@@ -89,6 +92,7 @@ def main() -> None:
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.settimeout(0.5)
     server.bind((bind_host, port))
     server.listen()
 
@@ -103,10 +107,13 @@ def main() -> None:
             "1": ("Ubah key Alice", lambda: _change_key(keys, lock, "alice")),
             "2": ("Ubah key Bob", lambda: _change_key(keys, lock, "bob")),
         })
+    except KeyboardInterrupt:
+        common._console_log("KDC", "Server dihentikan.")
     finally:
         stop.set()
         server.close()
-        thread.join()
+        thread.join(timeout=1.0)
+        common.close_logging()
 
 
 if __name__ == "__main__":
