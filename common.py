@@ -6,10 +6,18 @@ import aes
 
 
 KEY_LENGTH = 16
+_CONSOLE_LOCK = threading.Lock()
 
 
 def log(label: str, message: str) -> None:
-    print(f"[{label}] {message}")
+    with _CONSOLE_LOCK:
+        print(f"[{label}] {message}", flush=True)
+
+
+def _read_input(prompt: str) -> str:
+    """Read terminal input without interleaving background log output."""
+    with _CONSOLE_LOCK:
+        return input(prompt)
 
 
 def send(sock: socket.socket, obj: dict[str, object]) -> None:
@@ -59,7 +67,7 @@ def valid_text(text: str) -> bool:
 
 def ask_key(prompt: str) -> bytes:
     while True:
-        val = input(prompt).strip()
+        val = _read_input(prompt).strip()
         if len(val) == KEY_LENGTH and valid_text(val):
             return val.encode("ascii")
         log("ERROR", "Key harus tepat 16 karakter ASCII printable.")
@@ -71,7 +79,7 @@ def run_menu(title: str, options: dict[str, tuple[str, object]]) -> None:
         for k, (lbl, _) in options.items():
             log(title, f"{k}. {lbl}")
         log(title, "0. Keluar")
-        choice = input("Pilihan: ").strip()
+        choice = _read_input("Pilihan: ").strip()
         if choice == "0":
             return
         selected = options.get(choice)
@@ -109,7 +117,7 @@ def chat_session(sock: socket.socket, session_key: bytes) -> None:
     try:
         while not stop.is_set():
             try:
-                text = input("Pesan (/exit untuk keluar): ")
+                text = _read_input("Pesan (/exit untuk keluar): ")
             except (EOFError, KeyboardInterrupt):
                 break
             if stop.is_set() or text == "/exit":
